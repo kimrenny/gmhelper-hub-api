@@ -1,0 +1,55 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go build
+bin/
+dist/
+build/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Vendor
+vendor/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp/
+temp/
+*.tmp
+
+# Coverage
+coverage.out
+*.coverprofile
+
+# Generated protobuf
+*.pb.go
+
+# Env
+.env
+.env.local
+
+# Docker
+.dockerignore
+
+# Test cache
+.cache/
+
+# Profiling
+*.pprof

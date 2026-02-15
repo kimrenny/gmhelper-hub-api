@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package solutionhub;
+
+option go_package = "./proto";
+
+service SolutionHub {
+  rpc Solve (SolveRequest) returns (SolveResponse);
+}
+
+message SolveRequest {
+  string task_id = 1;
+  string problem_type = 2;
+  string payload = 3;
+}
+
+message SolveResponse {
+  string task_id = 1;
+  string strategy = 2;
+  string result = 3;
+  bool success = 4;
+}
