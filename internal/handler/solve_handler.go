@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 
 	"gmhelper.solution-hub/internal/model"
 	"gmhelper.solution-hub/internal/planner"
@@ -9,29 +10,32 @@ import (
 )
 
 type SolveHandler struct {
-	pb.UnimplementedSolutionHubServer
+	pb.UnimplementedSolutionHubServiceServer
 }
 
 func NewSolveHandler() *SolveHandler {
 	return &SolveHandler{}
 }
 
-func (h *SolveHandler) Solve(ctx context.Context, req *pb.SolveRequest) (*pb.SolveResponse, error) {
+func (h *SolveHandler) SubmitTask(ctx context.Context, req *pb.SubmitTaskRequest) (*pb.SubmitTaskResponse, error) {
+	var taskPayload map[string]interface{}
+	_ = json.Unmarshal([]byte(req.TaskJson), &taskPayload)
+
+	problemType, _ := taskPayload["problemType"].(string)
+
 	task := model.Task{
 		TaskID:      req.TaskId,
-		ProblemType: req.ProblemType,
-		Payload:     req.Payload,
+		Payload:     req.TaskJson,
+		ProblemType: problemType,
+		UserID:      req.UserId,
 	}
 
 	strategy := planner.ChooseStrategy(task.ProblemType)
 
 	result := processTask(task, strategy)
 
-	return &pb.SolveResponse{
-		TaskId:   task.TaskID,
-		Strategy: strategy,
-		Result:   result,
-		Success:  true,
+	return &pb.SubmitTaskResponse{
+		Status: result,
 	}, nil
 }
 

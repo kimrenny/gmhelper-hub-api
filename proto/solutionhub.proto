@@ -3,20 +3,19 @@ syntax = "proto3";
 package solutionhub;
 
 option go_package = "./proto";
+option csharp_namespace = "SolutionHub";
 
-service SolutionHub {
-  rpc Solve (SolveRequest) returns (SolveResponse);
+service SolutionHubService {
+  rpc SubmitTask (SubmitTaskRequest) returns (SubmitTaskResponse);
 }
 
-message SolveRequest {
-  string task_id = 1;
-  string problem_type = 2;
-  string payload = 3;
+message SubmitTaskRequest {
+  string taskId = 1;
+  string taskJson = 2;
+  string userId = 3;
+  string taskType = 4;
 }
 
-message SolveResponse {
-  string task_id = 1;
-  string strategy = 2;
-  string result = 3;
-  bool success = 4;
+message SubmitTaskResponse {
+  string status = 1;
 }
