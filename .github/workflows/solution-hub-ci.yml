@@ -1,0 +1,30 @@
+name: Solution Hub CI
+
+on:
+  push:
+    branches: ["dev"]
+
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Build project
+        run: go build ./...
