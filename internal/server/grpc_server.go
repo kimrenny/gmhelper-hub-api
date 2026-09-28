@@ -19,7 +19,7 @@ func RunGRPC(port string) {
 	grpcServer := grpc.NewServer()
 
 	solveHandler := handler.NewSolveHandler()
-	pb.RegisterSolutionHubServiceServer(grpcServer, solveHandler)
+	pb.RegisterSolutionHubServer(grpcServer, solveHandler)
 
 	log.Println("gRPC server started on port", port)
 

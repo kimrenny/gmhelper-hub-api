@@ -10,22 +10,24 @@ import (
 )
 
 type SolveHandler struct {
-	pb.UnimplementedSolutionHubServiceServer
+	pb.UnimplementedSolutionHubServer
 }
 
 func NewSolveHandler() *SolveHandler {
 	return &SolveHandler{}
 }
 
-func (h *SolveHandler) SubmitTask(ctx context.Context, req *pb.SubmitTaskRequest) (*pb.SubmitTaskResponse, error) {
-	var taskPayload map[string]interface{}
-	_ = json.Unmarshal([]byte(req.TaskJson), &taskPayload)
-
-	problemType, _ := taskPayload["problemType"].(string)
+func (h *SolveHandler) SolveProblem(ctx context.Context, req *pb.SolveProblemRequest) (*pb.SolveProblemResponse, error) {
+	problemType := req.ProblemType
+	if problemType == "" {
+		var taskPayload map[string]interface{}
+		_ = json.Unmarshal([]byte(req.Payload), &taskPayload)
+		problemType, _ = taskPayload["problemType"].(string)
+	}
 
 	task := model.Task{
 		TaskID:      req.TaskId,
-		Payload:     req.TaskJson,
+		Payload:     req.Payload,
 		ProblemType: problemType,
 		UserID:      req.UserId,
 	}
@@ -34,8 +36,11 @@ func (h *SolveHandler) SubmitTask(ctx context.Context, req *pb.SubmitTaskRequest
 
 	result := processTask(task, strategy)
 
-	return &pb.SubmitTaskResponse{
-		Status: result,
+	return &pb.SolveProblemResponse{
+		TaskId:  req.TaskId,
+		Status:  "SUCCESS",
+		Result:  result,
+		Success: true,
 	}, nil
 }
 
