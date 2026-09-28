@@ -38,8 +38,6 @@ temp/
 coverage.out
 *.coverprofile
 
-# Generated protobuf
-*.pb.go
 
 # Env
 .env
