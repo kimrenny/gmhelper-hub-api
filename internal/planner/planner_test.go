@@ -10,8 +10,28 @@ import (
 	mathSolver "gmhelper.solution-hub/internal/solver/math"
 )
 
+func validMathJSON() string {
+	return `{
+  "problemType": "math",
+  "status": "completed",
+  "problem": "1+1",
+  "latexProblem": "1+1",
+  "steps": [
+    {
+      "stepNumber": 1,
+      "title": "Add numbers",
+      "explanation": "Compute arithmetic sum.",
+      "latexFormula": "1+1=2"
+    }
+  ],
+  "finalAnswer": "2",
+  "latexAnswer": "2",
+  "compositeLatex": "1+1=2"
+}`
+}
+
 func TestPlanner_GetSolver_Math(t *testing.T) {
-	mockGemini := gemini.NewMockClient("ok", nil)
+	mockGemini := gemini.NewMockClient(validMathJSON(), nil)
 	m := mathSolver.NewMathSolver(mockGemini)
 	g := geoSolver.NewGeometrySolver(mockGemini)
 
@@ -27,7 +47,7 @@ func TestPlanner_GetSolver_Math(t *testing.T) {
 
 	task := solver.Task{TaskID: "1", ProblemType: "math", Payload: "1+1"}
 	res, err := s.Solve(context.Background(), task)
-	if err != nil || res.RawOutput != "ok" {
+	if err != nil || !res.Success {
 		t.Errorf("solver execution failed: %v", err)
 	}
 }
