@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -13,6 +14,32 @@ import (
 	pb "gmhelper.solution-hub/proto"
 )
 
+func validMathJSON() string {
+	return `{
+  "problemType": "math",
+  "status": "completed",
+  "problem": "2x + 5 = 15",
+  "latexProblem": "2x + 5 = 15",
+  "steps": [
+    {
+      "stepNumber": 1,
+      "title": "Subtract 5 from both sides",
+      "explanation": "Subtract 5 from both sides to isolate the linear term.",
+      "latexFormula": "2x + 5 - 5 = 15 - 5 \\implies 2x = 10"
+    },
+    {
+      "stepNumber": 2,
+      "title": "Divide by 2",
+      "explanation": "Divide both sides by 2 to find x.",
+      "latexFormula": "\\frac{2x}{2} = \\frac{10}{2} \\implies x = 5"
+    }
+  ],
+  "finalAnswer": "x = 5",
+  "latexAnswer": "x = 5",
+  "compositeLatex": "2x + 5 = 15 \\\\\n2x = 10 \\\\\nx = 5"
+}`
+}
+
 func createTestHandler(mockGemini gemini.Client) *SolveHandler {
 	m := mathSolver.NewMathSolver(mockGemini)
 	g := geoSolver.NewGeometrySolver(mockGemini)
@@ -21,14 +48,14 @@ func createTestHandler(mockGemini gemini.Client) *SolveHandler {
 }
 
 func TestSolveHandler_MathSuccess(t *testing.T) {
-	geminiResponse := `{"steps":[{"step":1,"text":"solve 2+2"}],"finalAnswer":"4"}`
+	geminiResponse := validMathJSON()
 	mockGemini := gemini.NewMockClient(geminiResponse, nil)
 	h := createTestHandler(mockGemini)
 
 	req := &pb.SolveProblemRequest{
 		TaskId:      "task-math-100",
 		ProblemType: "math",
-		Payload:     `{"data":"2+2"}`,
+		Payload:     `{"data":"2x + 5 = 15"}`,
 		UserId:      "user-100",
 	}
 
@@ -46,8 +73,39 @@ func TestSolveHandler_MathSuccess(t *testing.T) {
 	if resp.Status != "SUCCESS" {
 		t.Errorf("expected Status 'SUCCESS', got '%s'", resp.Status)
 	}
-	if resp.Result != geminiResponse {
-		t.Errorf("expected Result '%s', got '%s'", geminiResponse, resp.Result)
+
+	var parsed mathSolver.MathResult
+	if err := json.Unmarshal([]byte(resp.Result), &parsed); err != nil {
+		t.Fatalf("expected Result to be valid JSON: %v", err)
+	}
+	if parsed.FinalAnswer != "x = 5" {
+		t.Errorf("expected FinalAnswer 'x = 5', got '%s'", parsed.FinalAnswer)
+	}
+}
+
+func TestSolveHandler_MathInvalidGeminiOutput(t *testing.T) {
+	mockGemini := gemini.NewMockClient("not valid json", nil)
+	h := createTestHandler(mockGemini)
+
+	req := &pb.SolveProblemRequest{
+		TaskId:      "task-math-invalid",
+		ProblemType: "math",
+		Payload:     `{"data":"2x + 5 = 15"}`,
+	}
+
+	resp, err := h.SolveProblem(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected gRPC error: %v", err)
+	}
+
+	if resp.Success {
+		t.Errorf("expected Success false on invalid gemini output, got true")
+	}
+	if resp.Status != "SOLVER_ERROR" {
+		t.Errorf("expected Status 'SOLVER_ERROR', got '%s'", resp.Status)
+	}
+	if !strings.Contains(resp.Result, "output validation failed") {
+		t.Errorf("expected validation failure error in result, got: %s", resp.Result)
 	}
 }
 
