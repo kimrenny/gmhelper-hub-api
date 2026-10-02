@@ -30,6 +30,48 @@ func validMathJSON() string {
 }`
 }
 
+func validGeometryJSON() string {
+	return `{
+  "problemType": "geometry",
+  "status": "completed",
+  "problemStatement": "In triangle ABC with AB = 5, BC = 5, AC = 6, find area.",
+  "inputFacts": {
+    "figures": [
+      {
+        "id": "triangle_1",
+        "type": "triangle",
+        "vertices": ["A", "B", "C"]
+      }
+    ],
+    "lengths": {
+      "AB": 5.0,
+      "BC": 5.0,
+      "AC": 6.0
+    },
+    "angles": {}
+  },
+  "target": {
+    "descriptions": ["Area S"],
+    "variables": ["S"]
+  },
+  "derivedFacts": {
+    "metrics": {
+      "area": 12.0
+    }
+  },
+  "steps": [
+    {
+      "stepNumber": 1,
+      "title": "Calculate Area",
+      "explanation": "Find area using height.",
+      "latexFormula": "S = 12"
+    }
+  ],
+  "finalAnswer": "Area S = 12",
+  "latexAnswer": "S = 12"
+}`
+}
+
 func TestPlanner_GetSolver_Math(t *testing.T) {
 	mockGemini := gemini.NewMockClient(validMathJSON(), nil)
 	m := mathSolver.NewMathSolver(mockGemini)
@@ -53,7 +95,7 @@ func TestPlanner_GetSolver_Math(t *testing.T) {
 }
 
 func TestPlanner_GetSolver_Geometry(t *testing.T) {
-	mockGemini := gemini.NewMockClient("ok", nil)
+	mockGemini := gemini.NewMockClient(validGeometryJSON(), nil)
 	m := mathSolver.NewMathSolver(mockGemini)
 	g := geoSolver.NewGeometrySolver(mockGemini)
 
@@ -65,6 +107,16 @@ func TestPlanner_GetSolver_Geometry(t *testing.T) {
 	}
 	if s == nil {
 		t.Fatal("expected solver instance, got nil")
+	}
+
+	task := solver.Task{
+		TaskID:      "2",
+		ProblemType: "geometry",
+		Payload:     `{"triangle_1":{"points":[{"label":"A"},{"label":"B"},{"label":"C"}],"lines":{"AB":5,"BC":5,"AC":6}}}`,
+	}
+	res, err := s.Solve(context.Background(), task)
+	if err != nil || !res.Success {
+		t.Errorf("geometry solver execution failed: %v", err)
 	}
 }
 

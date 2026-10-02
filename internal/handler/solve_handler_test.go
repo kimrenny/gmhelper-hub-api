@@ -40,11 +40,211 @@ func validMathJSON() string {
 }`
 }
 
+func validGeometryJSON() string {
+	return `{
+  "problemType": "geometry",
+  "status": "completed",
+  "problemStatement": "In isosceles triangle ABC with side lengths AB = 5, BC = 5, and base AC = 6, find the altitude BH to base AC, the area S, and the perimeter P.",
+  "inputFacts": {
+    "figures": [
+      {
+        "id": "triangle_1",
+        "type": "triangle",
+        "vertices": ["A", "B", "C"]
+      }
+    ],
+    "lengths": {
+      "AB": 5.0,
+      "BC": 5.0,
+      "AC": 6.0
+    },
+    "angles": {}
+  },
+  "target": {
+    "descriptions": [
+      "Altitude BH to base AC",
+      "Area S of triangle ABC",
+      "Perimeter P of triangle ABC"
+    ],
+    "variables": ["BH", "S", "P"]
+  },
+  "derivedFacts": {
+    "auxiliaryConstructions": [
+      {
+        "type": "altitude",
+        "label": "BH",
+        "fromVertex": "B",
+        "toSegment": "AC",
+        "footPoint": "H"
+      }
+    ],
+    "lengths": {
+      "AH": 3.0,
+      "HC": 3.0,
+      "BH": 4.0
+    },
+    "angles": {
+      "BAC": 53.13,
+      "BCA": 53.13,
+      "ABC": 73.74,
+      "AHB": 90.0,
+      "BHC": 90.0
+    },
+    "metrics": {
+      "perimeter": 16.0,
+      "area": 12.0
+    }
+  },
+  "steps": [
+    {
+      "stepNumber": 1,
+      "title": "Construct Altitude and Determine Segment Lengths",
+      "explanation": "Construct altitude BH perpendicular to base AC. In isosceles triangle ABC with AB = BC, altitude BH bisects base AC. Thus, H is the midpoint of AC.",
+      "latexFormula": "AH = HC = \\frac{AC}{2} = \\frac{6}{2} = 3"
+    },
+    {
+      "stepNumber": 2,
+      "title": "Apply Pythagorean Theorem in Right Triangle ABH",
+      "explanation": "In right-angled triangle ABH, by the Pythagorean theorem, the square of hypotenuse AB equals the sum of the squares of legs AH and BH.",
+      "latexFormula": "AB^2 = AH^2 + BH^2 \\implies 5^2 = 3^2 + BH^2 \\implies BH = \\sqrt{25 - 9} = 4"
+    },
+    {
+      "stepNumber": 3,
+      "title": "Calculate Area of Triangle ABC",
+      "explanation": "The area S of a triangle is half the product of its base and corresponding altitude.",
+      "latexFormula": "S = \\frac{1}{2} \\cdot AC \\cdot BH = \\frac{1}{2} \\cdot 6 \\cdot 4 = 12"
+    },
+    {
+      "stepNumber": 4,
+      "title": "Calculate Perimeter of Triangle ABC",
+      "explanation": "The perimeter P is the sum of all three side lengths.",
+      "latexFormula": "P = AB + BC + AC = 5 + 5 + 6 = 16"
+    }
+  ],
+  "finalAnswer": "Altitude BH = 4, Area S = 12, Perimeter P = 16",
+  "latexAnswer": "BH = 4, \\quad S = 12, \\quad P = 16"
+}`
+}
+
+func validGeometryCanvasPayload() string {
+	return `{
+  "triangle_1": {
+    "points": [
+      {"label": "A"},
+      {"label": "B"},
+      {"label": "C"}
+    ],
+    "lines": {
+      "AB": 5.0,
+      "BC": 5.0,
+      "AC": 6.0
+    },
+    "angles": {}
+  }
+}`
+}
+
 func createTestHandler(mockGemini gemini.Client) *SolveHandler {
 	m := mathSolver.NewMathSolver(mockGemini)
 	g := geoSolver.NewGeometrySolver(mockGemini)
 	p := planner.NewDefaultPlanner(m, g)
 	return NewSolveHandler(p)
+}
+
+func TestSolveHandler_MathEndToEnd_ExactMock(t *testing.T) {
+	geminiResponse := validMathJSON()
+	mockGemini := gemini.NewMockClient(geminiResponse, nil)
+	h := createTestHandler(mockGemini)
+
+	req := &pb.SolveProblemRequest{
+		TaskId:      "test-math-1",
+		ProblemType: "math",
+		Payload:     "2x + 5 = 15",
+		UserId:      "test-user",
+	}
+
+	resp, err := h.SolveProblem(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected gRPC error: %v", err)
+	}
+
+	if resp.TaskId != "test-math-1" {
+		t.Errorf("expected TaskId 'test-math-1', got '%s'", resp.TaskId)
+	}
+	if !resp.Success {
+		t.Errorf("expected Success true, got false")
+	}
+	if resp.Status != "SUCCESS" {
+		t.Errorf("expected Status 'SUCCESS', got '%s'", resp.Status)
+	}
+
+	// 1. Verify prompt was received by mock Gemini
+	if !strings.Contains(mockGemini.LastPrompt, "2x + 5 = 15") {
+		t.Errorf("expected prompt to contain math problem, got: %s", mockGemini.LastPrompt)
+	}
+
+	// 2. Verify returned result is valid canonical JSON
+	var parsed mathSolver.MathResult
+	if err := json.Unmarshal([]byte(resp.Result), &parsed); err != nil {
+		t.Fatalf("expected Result to be valid JSON: %v", err)
+	}
+	if parsed.FinalAnswer != "x = 5" {
+		t.Errorf("expected FinalAnswer 'x = 5', got '%s'", parsed.FinalAnswer)
+	}
+	if parsed.LatexAnswer != "x = 5" {
+		t.Errorf("expected LatexAnswer 'x = 5', got '%s'", parsed.LatexAnswer)
+	}
+	if len(parsed.Steps) != 2 {
+		t.Errorf("expected 2 steps, got %d", len(parsed.Steps))
+	}
+}
+
+func TestSolveHandler_GeometryEndToEnd_ExactMock(t *testing.T) {
+	geminiResponse := validGeometryJSON()
+	mockGemini := gemini.NewMockClient(geminiResponse, nil)
+	h := createTestHandler(mockGemini)
+
+	req := &pb.SolveProblemRequest{
+		TaskId:      "test-geometry-1",
+		ProblemType: "geometry",
+		Payload:     validGeometryCanvasPayload(),
+		UserId:      "test-user",
+	}
+
+	resp, err := h.SolveProblem(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected gRPC error: %v", err)
+	}
+
+	if resp.TaskId != "test-geometry-1" {
+		t.Errorf("expected TaskId 'test-geometry-1', got '%s'", resp.TaskId)
+	}
+	if !resp.Success {
+		t.Errorf("expected Success true, got false")
+	}
+	if resp.Status != "SUCCESS" {
+		t.Errorf("expected Status 'SUCCESS', got '%s'", resp.Status)
+	}
+
+	// 1. Verify prompt contains original facts
+	if !strings.Contains(mockGemini.LastPrompt, "AB = 5") {
+		t.Errorf("expected prompt to contain side lengths, got: %s", mockGemini.LastPrompt)
+	}
+
+	// 2. Verify returned result is valid canonical JSON
+	var parsed geoSolver.GeometryResult
+	if err := json.Unmarshal([]byte(resp.Result), &parsed); err != nil {
+		t.Fatalf("expected Result to be valid JSON: %v", err)
+	}
+	if parsed.FinalAnswer != "Altitude BH = 4, Area S = 12, Perimeter P = 16" {
+		t.Errorf("unexpected FinalAnswer: %s", parsed.FinalAnswer)
+	}
+	if parsed.DerivedFacts.Metrics["area"] != 12.0 {
+		t.Errorf("expected area 12.0, got %v", parsed.DerivedFacts.Metrics["area"])
+	}
+	if parsed.DerivedFacts.Metrics["perimeter"] != 16.0 {
+		t.Errorf("expected perimeter 16.0, got %v", parsed.DerivedFacts.Metrics["perimeter"])
+	}
 }
 
 func TestSolveHandler_MathSuccess(t *testing.T) {
@@ -110,14 +310,14 @@ func TestSolveHandler_MathInvalidGeminiOutput(t *testing.T) {
 }
 
 func TestSolveHandler_GeometrySuccess(t *testing.T) {
-	geminiResponse := `{"steps":[{"step":1,"text":"calculate area"}],"finalAnswer":"50"}`
+	geminiResponse := validGeometryJSON()
 	mockGemini := gemini.NewMockClient(geminiResponse, nil)
 	h := createTestHandler(mockGemini)
 
 	req := &pb.SolveProblemRequest{
 		TaskId:      "task-geo-200",
 		ProblemType: "geometry",
-		Payload:     `{"rect":{"width":5,"height":10}}`,
+		Payload:     validGeometryCanvasPayload(),
 		UserId:      "user-200",
 	}
 
@@ -126,11 +326,75 @@ func TestSolveHandler_GeometrySuccess(t *testing.T) {
 		t.Fatalf("unexpected gRPC error: %v", err)
 	}
 
+	if resp.TaskId != "task-geo-200" {
+		t.Errorf("expected TaskId 'task-geo-200', got '%s'", resp.TaskId)
+	}
 	if !resp.Success {
 		t.Errorf("expected Success true, got false")
 	}
-	if resp.Result != geminiResponse {
-		t.Errorf("expected Result '%s', got '%s'", geminiResponse, resp.Result)
+	if resp.Status != "SUCCESS" {
+		t.Errorf("expected Status 'SUCCESS', got '%s'", resp.Status)
+	}
+
+	var parsed geoSolver.GeometryResult
+	if err := json.Unmarshal([]byte(resp.Result), &parsed); err != nil {
+		t.Fatalf("expected Result to be valid JSON: %v", err)
+	}
+	if parsed.FinalAnswer != "Altitude BH = 4, Area S = 12, Perimeter P = 16" {
+		t.Errorf("unexpected FinalAnswer: %s", parsed.FinalAnswer)
+	}
+}
+
+func TestSolveHandler_GeometryInvalidGeminiOutput(t *testing.T) {
+	mockGemini := gemini.NewMockClient("not valid json at all", nil)
+	h := createTestHandler(mockGemini)
+
+	req := &pb.SolveProblemRequest{
+		TaskId:      "task-geo-invalid",
+		ProblemType: "geometry",
+		Payload:     validGeometryCanvasPayload(),
+	}
+
+	resp, err := h.SolveProblem(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected gRPC error: %v", err)
+	}
+
+	if resp.Success {
+		t.Errorf("expected Success false on invalid geometry output, got true")
+	}
+	if resp.Status != "SOLVER_ERROR" {
+		t.Errorf("expected Status 'SOLVER_ERROR', got '%s'", resp.Status)
+	}
+	if !strings.Contains(resp.Result, "output validation failed") {
+		t.Errorf("expected validation failure in result, got: %s", resp.Result)
+	}
+}
+
+func TestSolveHandler_GeometryParityFailure(t *testing.T) {
+	alteredGemini := strings.Replace(validGeometryJSON(), `"AB": 5.0`, `"AB": 4.0`, 1)
+	mockGemini := gemini.NewMockClient(alteredGemini, nil)
+	h := createTestHandler(mockGemini)
+
+	req := &pb.SolveProblemRequest{
+		TaskId:      "task-geo-parity",
+		ProblemType: "geometry",
+		Payload:     validGeometryCanvasPayload(),
+	}
+
+	resp, err := h.SolveProblem(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected gRPC error: %v", err)
+	}
+
+	if resp.Success {
+		t.Errorf("expected Success false on parity failure, got true")
+	}
+	if resp.Status != "SOLVER_ERROR" {
+		t.Errorf("expected Status 'SOLVER_ERROR', got '%s'", resp.Status)
+	}
+	if !strings.Contains(resp.Result, "parity violation") {
+		t.Errorf("expected parity violation in result, got: %s", resp.Result)
 	}
 }
 
