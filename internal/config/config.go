@@ -18,6 +18,8 @@ type Config struct {
 }
 
 func Load() *Config {
+	loadDotEnv()
+
 	port := os.Getenv("GRPC_PORT")
 	if port == "" {
 		port = os.Getenv("PORT")
@@ -30,7 +32,7 @@ func Load() *Config {
 
 	model := os.Getenv("GEMINI_MODEL")
 	if model == "" {
-		model = "gemini-2.5-flash"
+		model = "gemini-3.5-flash-lite"
 	}
 
 	timeoutSec := 30

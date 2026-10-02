@@ -2,6 +2,7 @@ package geometry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -10,16 +11,56 @@ import (
 	"gmhelper.solution-hub/internal/solver"
 )
 
-func TestGeometrySolver_Solve_Success(t *testing.T) {
-	expectedResponse := `{"steps":[{"step":1,"text":"find triangle area"}],"answer":"S=25"}`
-	mockGemini := gemini.NewMockClient(expectedResponse, nil)
+func canvasPayload() string {
+	return `{
+  "triangle_1": {
+    "points": [
+      {"label": "A"},
+      {"label": "B"},
+      {"label": "C"}
+    ],
+    "lines": {
+      "AB": 5.0,
+      "BC": 5.0,
+      "AC": 6.0
+    },
+    "angles": {}
+  }
+}`
+}
+
+func gmhelperWrappedPayload() string {
+	return `{
+  "task": {
+    "triangle_1": {
+      "points": [
+        {"label": "A"},
+        {"label": "B"},
+        {"label": "C"}
+      ],
+      "lines": {
+        "AB": 5.0,
+        "BC": 5.0,
+        "AC": 6.0
+      },
+      "angles": {}
+    }
+  },
+  "given": "ABC – triangle\nAB = BC = 5\nAC = 6\n",
+  "solution": {},
+  "answer": "..."
+}`
+}
+
+func TestGeometrySolver_Solve_CanvasPayload_Success(t *testing.T) {
+	mockGemini := gemini.NewMockClient(validGeometryJSON(), nil)
 	s := NewGeometrySolver(mockGemini)
 
 	task := solver.Task{
 		TaskID:      "task-geo-1",
 		ProblemType: "geometry",
-		Payload:     `{"triangle":{"lines":{"AB":5,"BC":10}}}`,
-		UserID:      "user-1",
+		Payload:     canvasPayload(),
+		UserID:      "user-geo-1",
 	}
 
 	result, err := s.Solve(context.Background(), task)
@@ -31,27 +72,105 @@ func TestGeometrySolver_Solve_Success(t *testing.T) {
 		t.Errorf("expected Success true, got false")
 	}
 
-	if result.RawOutput != expectedResponse {
-		t.Errorf("expected RawOutput '%s', got '%s'", expectedResponse, result.RawOutput)
+	if result.TaskID != "task-geo-1" {
+		t.Errorf("expected TaskID 'task-geo-1', got '%s'", result.TaskID)
 	}
 
-	if !strings.Contains(mockGemini.LastPrompt, "AB") {
-		t.Errorf("prompt should contain task payload, got: %s", mockGemini.LastPrompt)
+	if result.ProblemType != "geometry" {
+		t.Errorf("expected ProblemType 'geometry', got '%s'", result.ProblemType)
 	}
 
-	if !strings.Contains(mockGemini.LastPrompt, "geometry") {
-		t.Errorf("prompt should identify problem type, got: %s", mockGemini.LastPrompt)
+	var parsed GeometryResult
+	if err := json.Unmarshal([]byte(result.RawOutput), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal normalized output JSON: %v", err)
+	}
+	if parsed.FinalAnswer != "Altitude BH = 4, Area S = 12, Perimeter P = 16" {
+		t.Errorf("unexpected FinalAnswer: %s", parsed.FinalAnswer)
+	}
+
+	if !strings.Contains(mockGemini.LastPrompt, "AB = 5") {
+		t.Errorf("prompt should contain extracted side lengths, got: %s", mockGemini.LastPrompt)
+	}
+}
+
+func TestGeometrySolver_Solve_WrappedPayload_Success(t *testing.T) {
+	mockGemini := gemini.NewMockClient(validGeometryJSON(), nil)
+	s := NewGeometrySolver(mockGemini)
+
+	task := solver.Task{
+		TaskID:      "task-geo-wrapped",
+		ProblemType: "geometry",
+		Payload:     gmhelperWrappedPayload(),
+	}
+
+	result, err := s.Solve(context.Background(), task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !result.Success {
+		t.Errorf("expected Success true, got false")
+	}
+}
+
+func TestGeometrySolver_Solve_InvalidJSON(t *testing.T) {
+	mockGemini := gemini.NewMockClient("not valid json at all", nil)
+	s := NewGeometrySolver(mockGemini)
+
+	task := solver.Task{
+		TaskID:      "task-geo-invalid-json",
+		ProblemType: "geometry",
+		Payload:     canvasPayload(),
+	}
+
+	result, err := s.Solve(context.Background(), task)
+	if err == nil {
+		t.Fatalf("expected error on invalid JSON, got nil")
+	}
+
+	if result.Success {
+		t.Errorf("expected Success false, got true")
+	}
+
+	if !strings.Contains(err.Error(), "output validation failed") {
+		t.Errorf("expected validation failure message, got: %v", err)
+	}
+}
+
+func TestGeometrySolver_Solve_ParityFailure(t *testing.T) {
+	// Gemini returns altered length AB = 4.0 instead of input 5.0
+	alteredGemini := strings.Replace(validGeometryJSON(), `"AB": 5.0`, `"AB": 4.0`, 1)
+	mockGemini := gemini.NewMockClient(alteredGemini, nil)
+	s := NewGeometrySolver(mockGemini)
+
+	task := solver.Task{
+		TaskID:      "task-geo-parity-fail",
+		ProblemType: "geometry",
+		Payload:     canvasPayload(),
+	}
+
+	result, err := s.Solve(context.Background(), task)
+	if err == nil {
+		t.Fatalf("expected error for input parity failure, got nil")
+	}
+
+	if result.Success {
+		t.Errorf("expected Success false, got true")
+	}
+
+	if !strings.Contains(err.Error(), "parity violation") {
+		t.Errorf("expected parity violation error, got: %v", err)
 	}
 }
 
 func TestGeometrySolver_Solve_GeminiError(t *testing.T) {
-	mockGemini := gemini.NewMockClient("", errors.New("timeout"))
+	mockGemini := gemini.NewMockClient("", errors.New("upstream service unavailable 503"))
 	s := NewGeometrySolver(mockGemini)
 
 	task := solver.Task{
-		TaskID:      "task-geo-2",
+		TaskID:      "task-geo-err",
 		ProblemType: "geometry",
-		Payload:     `{"circle":{}}`,
+		Payload:     canvasPayload(),
 	}
 
 	result, err := s.Solve(context.Background(), task)
@@ -63,7 +182,61 @@ func TestGeometrySolver_Solve_GeminiError(t *testing.T) {
 		t.Errorf("expected Success false, got true")
 	}
 
-	if !strings.Contains(err.Error(), "timeout") {
-		t.Errorf("expected timeout error, got: %v", err)
+	if !strings.Contains(err.Error(), "503") {
+		t.Errorf("expected 503 error, got: %v", err)
+	}
+}
+
+func TestGeometrySolver_Solve_EmptyPayload(t *testing.T) {
+	mockGemini := gemini.NewMockClient(validGeometryJSON(), nil)
+	s := NewGeometrySolver(mockGemini)
+
+	task := solver.Task{
+		TaskID:      "task-geo-empty",
+		ProblemType: "geometry",
+		Payload:     "   ",
+	}
+
+	_, err := s.Solve(context.Background(), task)
+	if err == nil {
+		t.Fatalf("expected error for empty payload, got nil")
+	}
+}
+
+func TestGeometrySolver_Solve_ContextCancellation(t *testing.T) {
+	mockGemini := gemini.NewMockClient(validGeometryJSON(), nil)
+	s := NewGeometrySolver(mockGemini)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	task := solver.Task{
+		TaskID:      "task-geo-cancel",
+		ProblemType: "geometry",
+		Payload:     canvasPayload(),
+	}
+
+	result, err := s.Solve(ctx, task)
+	if err == nil {
+		t.Fatalf("expected error for canceled context, got nil")
+	}
+
+	if result.Success {
+		t.Errorf("expected Success false, got true")
+	}
+}
+
+func TestGeometrySolver_Solve_NilClient(t *testing.T) {
+	s := NewGeometrySolver(nil)
+
+	task := solver.Task{
+		TaskID:      "task-geo-nil",
+		ProblemType: "geometry",
+		Payload:     canvasPayload(),
+	}
+
+	_, err := s.Solve(context.Background(), task)
+	if err == nil {
+		t.Fatalf("expected error for nil client, got nil")
 	}
 }
