@@ -13,7 +13,7 @@ import (
 const MaxResultSizeBytes = 64 * 1024
 
 var (
-	htmlTagRegex = regexp.MustCompile(`(?i)<\s*/?\s*(script|html|body|head|div|span|p|a|iframe|style|table|tr|td|th|ul|ol|li|img|form|input|button|h[1-6]|b|i|strong|em|applet|object|embed)\b[^>]*>`)
+	htmlTagRegex = regexp.MustCompile(`(?i)</?(script|html|body|head|div|span|p|a|br|hr|iframe|style|table|tr|td|th|ul|ol|li|img|form|input|button|h[1-6]|b|i|strong|em|applet|object|embed|svg|math)\b[^>]*>`)
 
 	dangerousTeXCommands = []string{
 		`\def`, `\let`, `\write`, `\input`, `\catcode`,

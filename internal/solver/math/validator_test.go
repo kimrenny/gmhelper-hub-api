@@ -154,10 +154,85 @@ func TestValidateMathResult_MarkdownCodeFences(t *testing.T) {
 }
 
 func TestValidateMathResult_HTMLInjection(t *testing.T) {
-	htmlPayload := strings.Replace(validMathJSON(), "x = 5", "<script>alert('pwned')</script>", 1)
-	_, err := ValidateMathResult(htmlPayload)
-	if err == nil || !strings.Contains(err.Error(), "HTML") {
-		t.Errorf("expected HTML rejection error, got: %v", err)
+	htmlSnippets := []string{
+		"<script>alert('pwned')</script>",
+		"<div>wrapper</div>",
+		"<p>paragraph explanation</p>",
+		"<span>styled text</span>",
+		"Line 1<br>Line 2",
+		"Line 1<br/>Line 2",
+		"<b>Bold title</b>",
+		"<i>Italic explanation</i>",
+		"<a href='http://example.com'>link</a>",
+		"<strong>Important</strong>",
+		"<em>Emphasis</em>",
+		"<h1>Header</h1>",
+	}
+
+	for _, snippet := range htmlSnippets {
+		t.Run(snippet, func(t *testing.T) {
+			htmlPayload := strings.Replace(validMathJSON(), "Subtract 5 from both sides to isolate the linear term.", snippet, 1)
+			_, err := ValidateMathResult(htmlPayload)
+			if err == nil || !strings.Contains(err.Error(), "forbidden HTML elements") {
+				t.Errorf("expected HTML rejection error for snippet '%s', got: %v", snippet, err)
+			}
+		})
+	}
+}
+
+func TestValidateMathResult_PlainTextExplanation(t *testing.T) {
+	plainText := "Subtract 5 from both sides of the equation."
+	jsonStr := strings.Replace(validMathJSON(), "Subtract 5 from both sides to isolate the linear term.", plainText, 1)
+	res, err := ValidateMathResult(jsonStr)
+	if err != nil {
+		t.Fatalf("expected valid plain text explanation to pass, got error: %v", err)
+	}
+	if res.Steps[0].Explanation != plainText {
+		t.Errorf("expected explanation '%s', got '%s'", plainText, res.Steps[0].Explanation)
+	}
+}
+
+func TestValidateMathResult_MathInequalitiesNotTreatedAsHTML(t *testing.T) {
+	inequalities := []string{
+		"For x < b, where y > 0",
+		"When 0 < x < 5 and y > 2",
+		"Given i < n and j > 0",
+		"Since x < a and z > 1",
+		"If p < q and r > s",
+	}
+
+	for _, ineq := range inequalities {
+		t.Run(ineq, func(t *testing.T) {
+			jsonStr := strings.Replace(validMathJSON(), "Subtract 5 from both sides to isolate the linear term.", ineq, 1)
+			_, err := ValidateMathResult(jsonStr)
+			if err != nil {
+				t.Errorf("expected inequality '%s' to pass validation, got error: %v", ineq, err)
+			}
+		})
+	}
+}
+
+func TestValidateMathResult_ValidLaTeXCommands(t *testing.T) {
+	validFormulas := []struct {
+		name    string
+		formula string
+	}{
+		{"linear equation", "2x = 10"},
+		{"fractions", "\\frac{2x}{2} = \\frac{10}{2}"},
+		{"square roots", "\\sqrt{16} = 4"},
+		{"multiplication dot", "2 \\cdot x = 10"},
+		{"environment block", "\\begin{matrix} 2x & 10 \\\\ x & 5 \\end{matrix}"},
+		{"inequality in LaTeX", "0 < x < 5"},
+	}
+
+	for _, tc := range validFormulas {
+		t.Run(tc.name, func(t *testing.T) {
+			jsonStr := strings.Replace(validMathJSON(), "2x + 5 - 5 = 15 - 5 \\implies 2x = 10", tc.formula, 1)
+			_, err := ValidateMathResult(jsonStr)
+			if err != nil {
+				t.Errorf("expected valid formula '%s' to pass validation, got error: %v", tc.formula, err)
+			}
+		})
 	}
 }
 
