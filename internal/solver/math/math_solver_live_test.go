@@ -31,7 +31,7 @@ func TestMathSolver_LiveGeminiSmokeTest(t *testing.T) {
 	task := solver.Task{
 		TaskID:      "live-smoke-test-1",
 		ProblemType: "math",
-		Payload:     "2x + 5 = 15",
+		Payload:     `{"data": "2x + 5 = 15"}`,
 		UserID:      "smoke-test-user",
 	}
 
@@ -57,6 +57,10 @@ func TestMathSolver_LiveGeminiSmokeTest(t *testing.T) {
 		t.Errorf("expected status 'completed', got '%s'", mathResult.Status)
 	}
 
+	if strings.TrimSpace(mathResult.CompositeLatex) == "" {
+		t.Errorf("expected non-empty compositeLatex")
+	}
+
 	if !strings.Contains(mathResult.FinalAnswer, "5") {
 		t.Errorf("expected final answer to contain '5', got: '%s'", mathResult.FinalAnswer)
 	}
@@ -69,9 +73,15 @@ func TestMathSolver_LiveGeminiSmokeTest(t *testing.T) {
 		t.Errorf("expected at least 1 step, got 0")
 	}
 
+	// Verify no HTML tags in any textual or formula fields
+	if htmlTagRegex.MatchString(result.RawOutput) {
+		t.Errorf("expected no HTML tags in structured solution output, got: %s", result.RawOutput)
+	}
+
 	t.Logf("Live Gemini test succeeded!")
 	t.Logf("Model used: %s", cfg.GeminiModel)
 	t.Logf("Final Answer: %s", mathResult.FinalAnswer)
 	t.Logf("LaTeX Answer: %s", mathResult.LatexAnswer)
+	t.Logf("Composite LaTeX: %s", mathResult.CompositeLatex)
 	t.Logf("Steps count: %d", len(mathResult.Steps))
 }
