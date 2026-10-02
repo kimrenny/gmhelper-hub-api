@@ -80,6 +80,14 @@ func (s *GeometrySolver) Solve(ctx context.Context, task solver.Task) (solver.Re
 		}, fmt.Errorf("geometry solver output validation failed: %w", err)
 	}
 
+	// Preserve input task metadata in canonical result
+	if inputFacts.ExplicitTarget != "" && geomResult.InputFacts.ExplicitTarget == "" {
+		geomResult.InputFacts.ExplicitTarget = inputFacts.ExplicitTarget
+	}
+	if len(inputFacts.AdditionalConditions) > 0 && len(geomResult.InputFacts.AdditionalConditions) == 0 {
+		geomResult.InputFacts.AdditionalConditions = inputFacts.AdditionalConditions
+	}
+
 	normalizedJSON, err := json.Marshal(geomResult)
 	if err != nil {
 		return solver.Result{

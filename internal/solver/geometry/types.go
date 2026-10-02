@@ -9,9 +9,11 @@ type Figure struct {
 
 // InputFacts represents the immutable geometric ground truth provided in the original task.
 type InputFacts struct {
-	Figures []Figure           `json:"figures"`
-	Lengths map[string]float64 `json:"lengths"`
-	Angles  map[string]float64 `json:"angles"`
+	Figures              []Figure           `json:"figures"`
+	Lengths              map[string]float64 `json:"lengths"`
+	Angles               map[string]float64 `json:"angles"`
+	ExplicitTarget       string             `json:"explicitTarget,omitempty"`
+	AdditionalConditions []string           `json:"additionalConditions,omitempty"`
 }
 
 // Target represents the unknown quantities or properties requested by the problem.
@@ -34,7 +36,7 @@ type DerivedFacts struct {
 	AuxiliaryConstructions []AuxiliaryConstruction `json:"auxiliaryConstructions,omitempty"`
 	Lengths                map[string]float64      `json:"lengths,omitempty"`
 	Angles                 map[string]float64      `json:"angles,omitempty"`
-	Metrics                map[string]float64      `json:"metrics"`
+	Metrics                map[string]float64      `json:"metrics,omitempty"`
 }
 
 // GeometryStep represents an individual logical proof or calculation step.

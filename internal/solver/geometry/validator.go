@@ -21,6 +21,19 @@ var (
 		`\openin`, `\openout`, `\newwrite`, `\csname`, `\endcsname`,
 		`\newcount`, `\newdimen`, `\newskip`, `\newmuskip`, `\newtoks`,
 	}
+
+	stopWords = map[string]bool{
+		"FIND": true, "CALCULATE": true, "COMPUTE": true, "DETERMINE": true, "SOLVE": true,
+		"WHAT": true, "FOR": true, "THE": true, "OF": true, "IN": true, "TO": true, "AND": true,
+		"WITH": true, "FROM": true, "BASE": true, "SIDE": true, "TRIANGLE": true, "RECTANGLE": true,
+		"SQUARE": true, "CIRCLE": true, "TRAPEZOID": true, "RHOMBUS": true, "PARALLELOGRAM": true,
+		"FIGURE": true, "POLYGON": true, "SEGMENT": true, "LINE": true, "POINT": true, "VERTEX": true,
+		"LENGTH": true, "VALUE": true, "GIVEN": true, "ITS": true, "EACH": true, "BOTH": true,
+		"ЗНАЙТИ": true, "ОБЧИСЛИТИ": true, "ВИЗНАЧИТИ": true, "НАЙТИ": true, "ВЫЧИСЛИТЬ": true, "ОПРЕДЕЛИТЬ": true,
+		"BERECHNE": true, "BESTIMME": true, "FINDE": true, "TROUVER": true, "CALCULER": true,
+	}
+
+	entityRegex = regexp.MustCompile(`\b[A-Za-z]{1,4}\b`)
 )
 
 // ValidateGeometryResult strictly validates raw Gemini output against the canonical Geometry
@@ -106,9 +119,19 @@ func ValidateGeometryResult(raw string, expectedFacts *InputFacts) (*GeometryRes
 		}
 	}
 
-	// Validate Metrics in DerivedFacts
-	if len(res.DerivedFacts.Metrics) == 0 {
-		return nil, errors.New("derivedFacts.metrics cannot be empty")
+	// Validate target compatibility against authoritative explicit target if present
+	if expectedFacts != nil && strings.TrimSpace(expectedFacts.ExplicitTarget) != "" {
+		if err := ValidateTargetCompatibility(expectedFacts.ExplicitTarget, res.Target); err != nil {
+			return nil, fmt.Errorf("target validation failed: %w", err)
+		}
+	}
+
+	// Validate DerivedFacts: ensure deductions exist
+	if res.DerivedFacts.Metrics == nil {
+		res.DerivedFacts.Metrics = make(map[string]float64)
+	}
+	if len(res.DerivedFacts.Metrics) == 0 && len(res.DerivedFacts.Lengths) == 0 && len(res.DerivedFacts.Angles) == 0 && len(res.DerivedFacts.AuxiliaryConstructions) == 0 {
+		return nil, errors.New("derivedFacts cannot be empty: must contain lengths, angles, metrics, or auxiliary constructions")
 	}
 
 	// Validate Steps
@@ -507,4 +530,108 @@ func checkDangerousTeX(s string) error {
 		}
 	}
 	return nil
+}
+
+// ValidateTargetCompatibility validates that the generated structured target matches the user's explicit goal.
+func ValidateTargetCompatibility(explicitTarget string, genTarget Target) error {
+	trimmedExplicit := strings.TrimSpace(explicitTarget)
+	if trimmedExplicit == "" {
+		return nil
+	}
+
+	upperExplicit := strings.ToUpper(trimmedExplicit)
+
+	// Combine all generated target descriptions and variables
+	var combinedGenVars []string
+	for _, v := range genTarget.Variables {
+		combinedGenVars = append(combinedGenVars, strings.ToUpper(strings.TrimSpace(v)))
+	}
+	combinedGenDescs := strings.ToUpper(strings.Join(genTarget.Descriptions, " "))
+	combinedGenAll := combinedGenDescs + " " + strings.Join(combinedGenVars, " ")
+
+	// 1. Check for specific geometric entity tokens (e.g. BH, AC, ABC, H)
+	tokens := entityRegex.FindAllString(upperExplicit, -1)
+	var geometricEntities []string
+	for _, tok := range tokens {
+		if !stopWords[tok] && len(tok) >= 2 {
+			geometricEntities = append(geometricEntities, tok)
+		}
+	}
+
+	// Check if any geometric entities are present in explicitTarget
+	if len(geometricEntities) > 0 {
+		matchedEntity := false
+		for _, entity := range geometricEntities {
+			// Check direct match in variables or descriptions
+			if containsEntity(combinedGenVars, entity) || containsEntityWord(combinedGenDescs, entity) {
+				matchedEntity = true
+				break
+			}
+			// Check reversed segment or angle (e.g. HB for BH, or CBA for ABC)
+			if len(entity) == 2 {
+				rev := string([]byte{entity[1], entity[0]})
+				if containsEntity(combinedGenVars, rev) || containsEntityWord(combinedGenDescs, rev) {
+					matchedEntity = true
+					break
+				}
+			} else if len(entity) == 3 {
+				rev := string([]byte{entity[2], entity[1], entity[0]})
+				if containsEntity(combinedGenVars, rev) || containsEntityWord(combinedGenDescs, rev) {
+					matchedEntity = true
+					break
+				}
+			}
+		}
+
+		if !matchedEntity {
+			return fmt.Errorf("generated target %v (variables: %v) does not solve explicit target '%s': missing referenced geometric element (%s)",
+				genTarget.Descriptions, genTarget.Variables, explicitTarget, strings.Join(geometricEntities, ", "))
+		}
+	}
+
+	// 2. Metric-specific checks
+	explicitWantsArea := containsAnyKeyword(upperExplicit, "AREA", "ПЛОЩ", "FLÄCH", "AIRE", "面積", "면적")
+	explicitWantsPerimeter := containsAnyKeyword(upperExplicit, "PERIMETER", "ПЕРИМЕТР", "UMFANG", "PÉRIMÈTRE", "周")
+
+	genHasArea := containsAnyKeyword(combinedGenAll, "AREA", "ПЛОЩ", "FLÄCH", "AIRE") || containsEntity(combinedGenVars, "S", "AREA")
+	genHasPerimeter := containsAnyKeyword(combinedGenAll, "PERIMETER", "ПЕРИМЕТР", "UMFANG", "PÉRIMÈTRE") || containsEntity(combinedGenVars, "P", "PERIMETER")
+
+	if explicitWantsArea && !genHasArea {
+		return fmt.Errorf("generated target %v (variables: %v) does not solve explicit target '%s': expected area calculation",
+			genTarget.Descriptions, genTarget.Variables, explicitTarget)
+	}
+
+	if explicitWantsPerimeter && !genHasPerimeter {
+		return fmt.Errorf("generated target %v (variables: %v) does not solve explicit target '%s': expected perimeter calculation",
+			genTarget.Descriptions, genTarget.Variables, explicitTarget)
+	}
+
+	return nil
+}
+
+func containsEntity(vars []string, entities ...string) bool {
+	for _, v := range vars {
+		for _, e := range entities {
+			if strings.EqualFold(v, e) || strings.Contains(strings.ToUpper(v), strings.ToUpper(e)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsEntityWord(text, entity string) bool {
+	pattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(entity))
+	matched, _ := regexp.MatchString(pattern, text)
+	return matched
+}
+
+func containsAnyKeyword(text string, keywords ...string) bool {
+	upper := strings.ToUpper(text)
+	for _, kw := range keywords {
+		if strings.Contains(upper, strings.ToUpper(kw)) {
+			return true
+		}
+	}
+	return false
 }

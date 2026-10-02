@@ -22,6 +22,25 @@ func ExtractInputFacts(payload string) (InputFacts, string, error) {
 		return InputFacts{}, "", fmt.Errorf("failed to parse geometry payload as JSON: %w", err)
 	}
 
+	targetMap := rawMap
+	var taskMap map[string]interface{}
+	if taskVal, ok := rawMap["task"].(map[string]interface{}); ok {
+		targetMap = taskVal
+		taskMap = taskVal
+	}
+
+	var factsObjMap map[string]interface{}
+	if obj, ok := rawMap["inputFacts"].(map[string]interface{}); ok {
+		factsObjMap = obj
+	} else if taskMap != nil {
+		if obj, ok := taskMap["inputFacts"].(map[string]interface{}); ok {
+			factsObjMap = obj
+		}
+	}
+
+	explicitTarget := extractExplicitTarget(rawMap, taskMap, factsObjMap)
+	additionalConditions := extractAdditionalConditions(rawMap, taskMap, factsObjMap)
+
 	// Case 1: Payload contains "inputFacts" object
 	if factsObj, ok := rawMap["inputFacts"]; ok {
 		factsBytes, err := json.Marshal(factsObj)
@@ -33,6 +52,12 @@ func ExtractInputFacts(payload string) (InputFacts, string, error) {
 				}
 				if facts.Angles == nil {
 					facts.Angles = make(map[string]float64)
+				}
+				if facts.ExplicitTarget == "" {
+					facts.ExplicitTarget = explicitTarget
+				}
+				if len(facts.AdditionalConditions) == 0 {
+					facts.AdditionalConditions = additionalConditions
 				}
 				return facts, formatFactsSummary(facts), nil
 			}
@@ -49,21 +74,23 @@ func ExtractInputFacts(payload string) (InputFacts, string, error) {
 			if facts.Angles == nil {
 				facts.Angles = make(map[string]float64)
 			}
+			if facts.ExplicitTarget == "" {
+				facts.ExplicitTarget = explicitTarget
+			}
+			if len(facts.AdditionalConditions) == 0 {
+				facts.AdditionalConditions = additionalConditions
+			}
 			return facts, formatFactsSummary(facts), nil
 		}
 	}
 
-	// Case 3: Nested inside "task" object
-	targetMap := rawMap
-	if taskVal, ok := rawMap["task"].(map[string]interface{}); ok {
-		targetMap = taskVal
-	}
-
 	// Extract from canvas figure dictionary
 	facts := InputFacts{
-		Figures: make([]Figure, 0),
-		Lengths: make(map[string]float64),
-		Angles:  make(map[string]float64),
+		Figures:              make([]Figure, 0),
+		Lengths:              make(map[string]float64),
+		Angles:               make(map[string]float64),
+		ExplicitTarget:       explicitTarget,
+		AdditionalConditions: additionalConditions,
 	}
 
 	// Sort keys for deterministic extraction
@@ -73,7 +100,25 @@ func ExtractInputFacts(payload string) (InputFacts, string, error) {
 	}
 	sort.Strings(keys)
 
+	ignoredMetadataKeys := map[string]bool{
+		"target":               true,
+		"explicittarget":       true,
+		"goal":                 true,
+		"additionalconditions": true,
+		"conditions":           true,
+		"task":                 true,
+		"given":                true,
+		"solution":             true,
+		"answer":               true,
+		"inputfacts":           true,
+		"figures":              true,
+	}
+
 	for _, figID := range keys {
+		if ignoredMetadataKeys[strings.ToLower(figID)] {
+			continue
+		}
+
 		figVal := targetMap[figID]
 		figMap, ok := figVal.(map[string]interface{})
 		if !ok {
@@ -135,6 +180,60 @@ func ExtractInputFacts(payload string) (InputFacts, string, error) {
 	return facts, formatFactsSummary(facts), nil
 }
 
+func extractExplicitTarget(maps ...map[string]interface{}) string {
+	for _, m := range maps {
+		if m == nil {
+			continue
+		}
+		for _, key := range []string{"target", "explicitTarget", "goal"} {
+			if val, ok := m[key]; ok && val != nil {
+				if strVal, ok := val.(string); ok {
+					trimmed := strings.TrimSpace(strVal)
+					if trimmed != "" {
+						return trimmed
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func extractAdditionalConditions(maps ...map[string]interface{}) []string {
+	var result []string
+	seen := make(map[string]bool)
+
+	for _, m := range maps {
+		if m == nil {
+			continue
+		}
+		for _, key := range []string{"additionalConditions", "conditions"} {
+			if val, ok := m[key]; ok && val != nil {
+				if sliceVal, ok := val.([]interface{}); ok {
+					for _, item := range sliceVal {
+						if strVal, ok := item.(string); ok {
+							trimmed := strings.TrimSpace(strVal)
+							if trimmed != "" && !seen[trimmed] {
+								seen[trimmed] = true
+								result = append(result, trimmed)
+							}
+						}
+					}
+				} else if strSliceVal, ok := val.([]string); ok {
+					for _, item := range strSliceVal {
+						trimmed := strings.TrimSpace(item)
+						if trimmed != "" && !seen[trimmed] {
+							seen[trimmed] = true
+							result = append(result, trimmed)
+						}
+					}
+				}
+			}
+		}
+	}
+	return result
+}
+
 func allSidesEqual(figMap map[string]interface{}) bool {
 	linesMap, ok := figMap["lines"].(map[string]interface{})
 	if !ok || len(linesMap) < 2 {
@@ -169,16 +268,37 @@ func formatFactsSummary(facts InputFacts) string {
 
 	if len(facts.Lengths) > 0 {
 		sb.WriteString("Given side lengths:\n")
-		for k, v := range facts.Lengths {
-			sb.WriteString(fmt.Sprintf("  * %s = %v\n", k, v))
+		keys := make([]string, 0, len(facts.Lengths))
+		for k := range facts.Lengths {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			sb.WriteString(fmt.Sprintf("  * %s = %v\n", k, facts.Lengths[k]))
 		}
 	}
 
 	if len(facts.Angles) > 0 {
 		sb.WriteString("Given angles:\n")
-		for k, v := range facts.Angles {
-			sb.WriteString(fmt.Sprintf("  * ∠%s = %v°\n", k, v))
+		keys := make([]string, 0, len(facts.Angles))
+		for k := range facts.Angles {
+			keys = append(keys, k)
 		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			sb.WriteString(fmt.Sprintf("  * ∠%s = %v°\n", k, facts.Angles[k]))
+		}
+	}
+
+	if len(facts.AdditionalConditions) > 0 {
+		sb.WriteString("Additional geometric constraints:\n")
+		for _, cond := range facts.AdditionalConditions {
+			sb.WriteString(fmt.Sprintf("  * %s\n", cond))
+		}
+	}
+
+	if facts.ExplicitTarget != "" {
+		sb.WriteString(fmt.Sprintf("Explicit problem goal:\n  * %s\n", facts.ExplicitTarget))
 	}
 
 	return sb.String()
@@ -188,6 +308,24 @@ func formatFactsSummary(facts InputFacts) string {
 func BuildPrompt(facts InputFacts, summary string) string {
 	factsJSON, _ := json.MarshalIndent(facts, "", "  ")
 
+	var metadataSection strings.Builder
+	if facts.ExplicitTarget != "" {
+		metadataSection.WriteString(fmt.Sprintf("\nExplicit Problem Goal (AUTHORITATIVE - you MUST solve this exact goal):\n%s\n", facts.ExplicitTarget))
+	}
+	if len(facts.AdditionalConditions) > 0 {
+		metadataSection.WriteString("\nAdditional Geometric Constraints:\n")
+		for _, cond := range facts.AdditionalConditions {
+			metadataSection.WriteString(fmt.Sprintf("- %s\n", cond))
+		}
+	}
+
+	var requirement1 string
+	if facts.ExplicitTarget != "" {
+		requirement1 = fmt.Sprintf("Solve the explicitly specified problem goal (\"%s\"). Do NOT replace it with another geometric objective or solve for an unrelated metric unless needed as an intermediate step to find the target.", facts.ExplicitTarget)
+	} else {
+		requirement1 = "Solve the geometry problem accurately, completely, and rigorously rather than merely restating it."
+	}
+
 	return fmt.Sprintf(`You are the expert Geometric Problem Solver for GMHelper.
 
 Solve the following geometry problem step by step and output the solution in the exact JSON format specified below.
@@ -196,10 +334,9 @@ Immutable Input Facts:
 %s
 
 Input Facts Summary:
-%s
-
+%s%s
 Requirements:
-1. Solve the geometry problem accurately, completely, and rigorously rather than merely restating it.
+1. %s
 2. Provide discrete, pedagogical step-by-step reasoning in the "steps" array.
 3. Every step in "steps" must have:
    - "stepNumber": integer starting at 1 and strictly incrementing by 1 (1, 2, 3, ...).
@@ -281,5 +418,5 @@ JSON Schema:
   ],
   "finalAnswer": "string",
   "latexAnswer": "string"
-}`, string(factsJSON), summary)
+}`, string(factsJSON), summary, metadataSection.String(), requirement1)
 }

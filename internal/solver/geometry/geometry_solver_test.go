@@ -240,3 +240,118 @@ func TestGeometrySolver_Solve_NilClient(t *testing.T) {
 		t.Fatalf("expected error for nil client, got nil")
 	}
 }
+
+func TestGeometrySolver_Solve_WithTargetAndConditions_Success(t *testing.T) {
+	mockGemini := gemini.NewMockClient(validGeometryJSON(), nil)
+	s := NewGeometrySolver(mockGemini)
+
+	payloadWithMetadata := `{
+		"triangle_1": {
+			"points": [
+				{"label": "A"},
+				{"label": "B"},
+				{"label": "C"}
+			],
+			"lines": {
+				"AB": 5.0,
+				"BC": 5.0,
+				"AC": 6.0
+			},
+			"angles": {}
+		},
+		"additionalConditions": [
+			"BH is perpendicular to AC"
+		],
+		"target": "Find BH"
+	}`
+
+	task := solver.Task{
+		TaskID:      "task-geo-target-1",
+		ProblemType: "geometry",
+		Payload:     payloadWithMetadata,
+	}
+
+	result, err := s.Solve(context.Background(), task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !result.Success {
+		t.Errorf("expected Success true, got false")
+	}
+
+	if !strings.Contains(mockGemini.LastPrompt, "Explicit Problem Goal (AUTHORITATIVE") || !strings.Contains(mockGemini.LastPrompt, "Find BH") {
+		t.Errorf("prompt should contain authoritative explicit target, got: %s", mockGemini.LastPrompt)
+	}
+
+	if !strings.Contains(mockGemini.LastPrompt, "Additional Geometric Constraints") || !strings.Contains(mockGemini.LastPrompt, "BH is perpendicular to AC") {
+		t.Errorf("prompt should contain additional constraints, got: %s", mockGemini.LastPrompt)
+	}
+
+	var parsed GeometryResult
+	if err := json.Unmarshal([]byte(result.RawOutput), &parsed); err != nil {
+		t.Fatalf("failed to parse raw output: %v", err)
+	}
+	if parsed.InputFacts.ExplicitTarget != "Find BH" {
+		t.Errorf("expected normalized inputFacts to have ExplicitTarget 'Find BH', got '%s'", parsed.InputFacts.ExplicitTarget)
+	}
+}
+
+func TestGeometrySolver_Solve_UnrelatedTarget_ValidationFail(t *testing.T) {
+	// Gemini outputs an unrelated area-only target
+	unrelatedJSON := strings.Replace(
+		validGeometryJSON(),
+		`"target": {
+    "descriptions": [
+      "Altitude BH to base AC",
+      "Area S of triangle ABC",
+      "Perimeter P of triangle ABC"
+    ],
+    "variables": ["BH", "S", "P"]
+  }`,
+		`"target": {
+    "descriptions": ["Calculate the area of triangle ABC"],
+    "variables": ["area"]
+  }`,
+		1,
+	)
+
+	mockGemini := gemini.NewMockClient(unrelatedJSON, nil)
+	s := NewGeometrySolver(mockGemini)
+
+	payloadWithTarget := `{
+		"triangle_1": {
+			"points": [
+				{"label": "A"},
+				{"label": "B"},
+				{"label": "C"}
+			],
+			"lines": {
+				"AB": 5.0,
+				"BC": 5.0,
+				"AC": 6.0
+			},
+			"angles": {}
+		},
+		"target": "Find BH"
+	}`
+
+	task := solver.Task{
+		TaskID:      "task-geo-unrelated-target",
+		ProblemType: "geometry",
+		Payload:     payloadWithTarget,
+	}
+
+	result, err := s.Solve(context.Background(), task)
+	if err == nil {
+		t.Fatalf("expected error due to target validation failure, got nil")
+	}
+
+	if result.Success {
+		t.Errorf("expected Success false, got true")
+	}
+
+	if !strings.Contains(err.Error(), "target validation failed") {
+		t.Errorf("expected error containing 'target validation failed', got: %v", err)
+	}
+}
