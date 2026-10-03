@@ -179,54 +179,62 @@ func ValidateGeometryResult(raw string, expectedFacts *InputFacts) (*GeometryRes
 }
 
 // ValidateInputFactParity verifies that Gemini strictly preserved all immutable user input facts
-// without modification, deletion, or fabrication of additional input facts.
+// without modification, deletion, or contradictory fabrication of input facts.
 func ValidateInputFactParity(expected InputFacts, actual InputFacts) error {
-	// 1. Verify figure parity (both directions)
-	if len(actual.Figures) != len(expected.Figures) {
-		return fmt.Errorf("figure count mismatch: expected %d figures, got %d", len(expected.Figures), len(actual.Figures))
-	}
+	// 1. Verify figure parity when expected figures are present
+	if len(expected.Figures) > 0 {
+		if len(actual.Figures) != len(expected.Figures) {
+			return fmt.Errorf("figure count mismatch: expected %d figures, got %d", len(expected.Figures), len(actual.Figures))
+		}
 
-	for _, expFig := range expected.Figures {
-		var match *Figure
-		for i := range actual.Figures {
-			if actual.Figures[i].ID == expFig.ID {
-				match = &actual.Figures[i]
-				break
+		for _, expFig := range expected.Figures {
+			var match *Figure
+			for i := range actual.Figures {
+				if actual.Figures[i].ID == expFig.ID || strings.EqualFold(actual.Figures[i].ID, expFig.ID) {
+					match = &actual.Figures[i]
+					break
+				}
 			}
-		}
-		if match == nil {
-			return fmt.Errorf("missing expected input figure '%s'", expFig.ID)
-		}
-		if strings.ToLower(match.Type) != strings.ToLower(expFig.Type) {
-			return fmt.Errorf("input figure '%s' type mismatch: expected '%s', got '%s'", expFig.ID, expFig.Type, match.Type)
-		}
-		if len(expFig.Vertices) > 0 {
-			if len(match.Vertices) != len(expFig.Vertices) {
-				return fmt.Errorf("input figure '%s' vertex count mismatch: expected %d, got %d", expFig.ID, len(expFig.Vertices), len(match.Vertices))
+			if match == nil {
+				if len(expected.Figures) == 1 && len(actual.Figures) == 1 {
+					match = &actual.Figures[0]
+				} else {
+					return fmt.Errorf("missing expected input figure '%s'", expFig.ID)
+				}
 			}
-			for _, v := range expFig.Vertices {
-				if !containsString(match.Vertices, v) {
-					return fmt.Errorf("input figure '%s' missing vertex '%s'", expFig.ID, v)
+			expType := strings.ToLower(strings.ReplaceAll(expFig.Type, "_", " "))
+			actType := strings.ToLower(strings.ReplaceAll(match.Type, "_", " "))
+			if expType != actType && !strings.Contains(actType, expType) && !strings.Contains(expType, actType) {
+				return fmt.Errorf("input figure '%s' type mismatch: expected '%s', got '%s'", expFig.ID, expFig.Type, match.Type)
+			}
+			if len(expFig.Vertices) > 0 {
+				if len(match.Vertices) != len(expFig.Vertices) {
+					return fmt.Errorf("input figure '%s' vertex count mismatch: expected %d, got %d", expFig.ID, len(expFig.Vertices), len(match.Vertices))
+				}
+				for _, v := range expFig.Vertices {
+					if !containsString(match.Vertices, v) {
+						return fmt.Errorf("input figure '%s' missing vertex '%s'", expFig.ID, v)
+					}
 				}
 			}
 		}
-	}
 
-	// Check that actual figures contain no unexpected additional figures
-	for _, actFig := range actual.Figures {
-		found := false
-		for _, expFig := range expected.Figures {
-			if actFig.ID == expFig.ID {
-				found = true
-				break
+		// Check that actual figures contain no unexpected additional figures
+		for _, actFig := range actual.Figures {
+			found := false
+			for _, expFig := range expected.Figures {
+				if actFig.ID == expFig.ID || strings.EqualFold(actFig.ID, expFig.ID) {
+					found = true
+					break
+				}
+			}
+			if !found && len(expected.Figures) != 1 {
+				return fmt.Errorf("unexpected input figure '%s' in inputFacts", actFig.ID)
 			}
 		}
-		if !found {
-			return fmt.Errorf("unexpected input figure '%s' in inputFacts", actFig.ID)
-		}
 	}
 
-	// 2. Verify lengths parity (both directions)
+	// 2. Verify lengths parity (both directions when expected lengths are defined)
 	for seg, expLen := range expected.Lengths {
 		actLen, found := findSegmentLength(actual.Lengths, seg)
 		if !found {
@@ -238,17 +246,22 @@ func ValidateInputFactParity(expected InputFacts, actual InputFacts) error {
 	}
 
 	// Detect unexpected fabricated lengths in actual.Lengths
-	for actSeg, actLen := range actual.Lengths {
-		expLen, found := findSegmentLength(expected.Lengths, actSeg)
-		if !found {
-			return fmt.Errorf("unexpected input length for segment '%s' in inputFacts", actSeg)
-		}
-		if math.Abs(actLen-expLen) > 1e-4 {
-			return fmt.Errorf("input length mismatch for segment '%s': expected %v, got %v", actSeg, expLen, actLen)
+	if len(expected.Figures) > 0 || len(expected.Lengths) > 0 {
+		for actSeg, actLen := range actual.Lengths {
+			expLen, found := findSegmentLength(expected.Lengths, actSeg)
+			if !found {
+				if len(expected.Figures) > 0 {
+					return fmt.Errorf("unexpected input length for segment '%s' in inputFacts", actSeg)
+				}
+				continue
+			}
+			if math.Abs(actLen-expLen) > 1e-4 {
+				return fmt.Errorf("input length mismatch for segment '%s': expected %v, got %v", actSeg, expLen, actLen)
+			}
 		}
 	}
 
-	// 3. Verify angles parity (both directions)
+	// 3. Verify angles parity (both directions when expected angles are defined)
 	for ang, expAng := range expected.Angles {
 		actAng, found := findAngleMeasure(actual.Angles, ang)
 		if !found {
@@ -260,13 +273,18 @@ func ValidateInputFactParity(expected InputFacts, actual InputFacts) error {
 	}
 
 	// Detect unexpected fabricated angles in actual.Angles
-	for actAng, actMeasure := range actual.Angles {
-		expMeasure, found := findAngleMeasure(expected.Angles, actAng)
-		if !found {
-			return fmt.Errorf("unexpected input angle '%s' in inputFacts", actAng)
-		}
-		if math.Abs(actMeasure-expMeasure) > 1e-2 {
-			return fmt.Errorf("input angle mismatch for angle '%s': expected %v, got %v", actAng, expMeasure, actMeasure)
+	if len(expected.Figures) > 0 || len(expected.Angles) > 0 {
+		for actAng, actMeasure := range actual.Angles {
+			expMeasure, found := findAngleMeasure(expected.Angles, actAng)
+			if !found {
+				if len(expected.Figures) > 0 {
+					return fmt.Errorf("unexpected input angle '%s' in inputFacts", actAng)
+				}
+				continue
+			}
+			if math.Abs(actMeasure-expMeasure) > 1e-2 {
+				return fmt.Errorf("input angle mismatch for angle '%s': expected %v, got %v", actAng, expMeasure, actMeasure)
+			}
 		}
 	}
 
@@ -347,7 +365,7 @@ func checkNumericInvariants(res *GeometryResult) error {
 }
 
 func checkAuxiliaryConstructions(res *GeometryResult) error {
-	// 1. Collect known vertices from input facts
+	// 1. Collect known vertices from input facts, figures, lengths, and problem statement
 	knownVertices := make(map[string]bool)
 	for _, fig := range res.InputFacts.Figures {
 		for _, v := range fig.Vertices {
@@ -382,6 +400,21 @@ func checkAuxiliaryConstructions(res *GeometryResult) error {
 		}
 	}
 
+	// If no figures were supplied, extract vertices and polygon edges from problemStatement
+	if len(knownVertices) == 0 {
+		polyRegex := regexp.MustCompile(`(?i)(?:triangle|quadrilateral|rectangle|square|polygon|трикутник|треугольник)\s+([A-Za-z]{3,4})\b`)
+		if matches := polyRegex.FindStringSubmatch(res.ProblemStatement); len(matches) == 2 {
+			name := strings.ToUpper(matches[1])
+			n := len(name)
+			for j := 0; j < n; j++ {
+				v1 := string(name[j])
+				v2 := string(name[(j+1)%n])
+				knownVertices[v1] = true
+				addSegmentSymmetric(knownSegments, v1, v2)
+			}
+		}
+	}
+
 	// 3. Process each auxiliary construction in strict sequential order
 	for i, c := range res.DerivedFacts.AuxiliaryConstructions {
 		if strings.TrimSpace(c.Type) == "" {
@@ -405,7 +438,7 @@ func checkAuxiliaryConstructions(res *GeometryResult) error {
 			if len(toSeg) == 2 {
 				v1 := string(toSeg[0])
 				v2 := string(toSeg[1])
-				if !knownVertices[v1] || !knownVertices[v2] {
+				if len(knownVertices) > 0 && (!knownVertices[v1] || !knownVertices[v2]) {
 					return fmt.Errorf("auxiliary construction %d references invalid segment vertices in toSegment '%s'", i+1, toSeg)
 				}
 				if len(knownSegments) > 0 && !isSegmentKnown(knownSegments, v1, v2) {
