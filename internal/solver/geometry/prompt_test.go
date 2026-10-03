@@ -713,4 +713,3 @@ func TestExtractInputFacts_AdditionalConditionsWithoutFigure(t *testing.T) {
 		t.Errorf("prompt missing conditions")
 	}
 }
-

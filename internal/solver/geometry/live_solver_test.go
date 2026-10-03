@@ -471,4 +471,3 @@ func TestGeometrySolver_LiveSolve_ConflictingVisualData(t *testing.T) {
 		t.Errorf("expected final answer to calculate BH = 4 using textual values, got finalAnswer: %s, latexAnswer: %s", parsed.FinalAnswer, parsed.LatexAnswer)
 	}
 }
-

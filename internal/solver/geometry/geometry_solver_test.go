@@ -447,4 +447,3 @@ func TestGeometrySolver_Solve_TextOverridesDrawing_Success(t *testing.T) {
 		t.Errorf("prompt should NOT contain drawing length AB = 7")
 	}
 }
-
