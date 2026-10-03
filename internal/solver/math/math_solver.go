@@ -34,7 +34,7 @@ func (s *MathSolver) Solve(ctx context.Context, task solver.Task) (solver.Result
 		}, errors.New("gemini client is not configured")
 	}
 
-	problem := ExtractProblem(task.Payload)
+	problem, lang := ExtractProblemAndLanguage(task.Payload)
 	if strings.TrimSpace(problem) == "" {
 		return solver.Result{
 			TaskID:      task.TaskID,
@@ -51,7 +51,7 @@ func (s *MathSolver) Solve(ctx context.Context, task solver.Task) (solver.Result
 		}, fmt.Errorf("math solver context canceled or timed out: %w", err)
 	}
 
-	prompt := BuildPrompt(problem)
+	prompt := BuildPrompt(problem, lang)
 
 	rawOutput, err := s.geminiClient.Generate(ctx, prompt)
 	if err != nil {

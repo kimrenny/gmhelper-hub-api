@@ -154,3 +154,72 @@ func TestMathSolver_Solve_NilClient(t *testing.T) {
 		t.Fatalf("expected error for nil client, got nil")
 	}
 }
+
+func TestExtractProblemAndLanguage(t *testing.T) {
+	testCases := []struct {
+		name         string
+		payload      string
+		expectedProb string
+		expectedLang string
+	}{
+		{
+			name:         "json with data and language ru",
+			payload:      `{"data":"2x + 5 = 15", "language":"ru"}`,
+			expectedProb: "2x + 5 = 15",
+			expectedLang: "ru",
+		},
+		{
+			name:         "json with problem and lang uk",
+			payload:      `{"problem":"\\int x dx", "lang":"uk"}`,
+			expectedProb: "\\int x dx",
+			expectedLang: "uk",
+		},
+		{
+			name:         "json with expression and locale de",
+			payload:      `{"expression":"3a + 2b = 10", "locale":"de"}`,
+			expectedProb: "3a + 2b = 10",
+			expectedLang: "de",
+		},
+		{
+			name:         "plain string defaults to en",
+			payload:      `2x + 5 = 15`,
+			expectedProb: "2x + 5 = 15",
+			expectedLang: "en",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			prob, lang := ExtractProblemAndLanguage(tc.payload)
+			if prob != tc.expectedProb {
+				t.Errorf("expected problem '%s', got '%s'", tc.expectedProb, prob)
+			}
+			if lang != tc.expectedLang {
+				t.Errorf("expected language '%s', got '%s'", tc.expectedLang, lang)
+			}
+		})
+	}
+}
+
+func TestMathSolver_Solve_LanguagePropagation(t *testing.T) {
+	mockGemini := gemini.NewMockClient(validMathJSON(), nil)
+	s := NewMathSolver(mockGemini)
+
+	task := solver.Task{
+		TaskID:      "task-math-lang-ru",
+		ProblemType: "math",
+		Payload:     `{"data":"2x + 5 = 15", "language":"ru"}`,
+	}
+
+	result, err := s.Solve(context.Background(), task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Errorf("expected Success true, got false")
+	}
+
+	if !strings.Contains(mockGemini.LastPrompt, "Russian (Русский)") {
+		t.Errorf("expected prompt to contain 'Russian (Русский)', got:\n%s", mockGemini.LastPrompt)
+	}
+}
